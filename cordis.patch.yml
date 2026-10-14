@@ -1,0 +1,6 @@
+- insert:
+    - id: codex-quota
+      name: dsh-codex-quota-widget
+      config:
+        pollIntervalMs: 5000
+        timeoutMs: 10000

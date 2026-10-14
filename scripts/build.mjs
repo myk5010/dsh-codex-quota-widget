@@ -1,0 +1,10 @@
+import fs from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
+const source = fs.readFileSync(path.join(root, 'source/client.cjs'), 'utf8');
+const manifest = JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8'));
+const bundle = `// Built with scripts/build.mjs; uses the DSH platform React singleton.\nwindow.__ModuleLoader__.load({ id: ${JSON.stringify(manifest.name)}, factory: (require) => {\nconst module = {exports:{}}; const exports = module.exports;\n${source}\nreturn module.exports;\n}});\n`;
+fs.mkdirSync(path.join(root, 'lib'), { recursive: true });
+fs.writeFileSync(path.join(root, 'lib/client.js'), bundle);
+console.log('Built lib/client.js (' + Buffer.byteLength(bundle) + ' bytes)');

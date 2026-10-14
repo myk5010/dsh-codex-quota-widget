@@ -1,0 +1,32 @@
+name: Plugin CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+      - run: npm ci --ignore-scripts
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:browser
+      - run: mkdir -p dist && npm pack --ignore-scripts --pack-destination dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: plugin-package-and-mock-ui
+          path: |
+            dist/*.tgz
+            test-results/*.png
+          if-no-files-found: error

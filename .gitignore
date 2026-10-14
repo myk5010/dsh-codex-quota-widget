@@ -1,0 +1,29 @@
+# Dependencies and generated artifacts
+node_modules/
+lib/
+dist/
+*.tgz
+test-results/
+playwright-report/
+coverage/
+*.log
+
+# Never commit authentication / account state
+.env
+.env.*
+!.env.example
+**/.credentials*
+**/auth.json
+**/credentials.json
+*.cookies
+*.cookie
+*.har
+.web-*-launch-url
+runtime/
+sessions/
+storages/
+
+# Local editor and OS files
+.DS_Store
+.vscode/
+.idea/
