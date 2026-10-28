@@ -15,8 +15,8 @@ async function fixture(page) {
   await page.evaluate(()=>{window.__ModuleLoader__={load:d=>window.quotaPlugin=d.factory(n=>{if(n!=='react')throw Error('unexpected dependency');return window.React;})};});
   await page.addScriptTag({path:new URL('../lib/client.js',import.meta.url).pathname});
   await page.evaluate(()=>{
-    window.rpcCalls=0;window.disposers=[];
-    const call=async()=>{window.rpcCalls++;return{ok:true,value:{status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:Date.now()+86400000}],limitReached:false,credits:null}};};
+    window.rpcCalls=0;window.disposers=[];window.fixtureResetAt=Date.now()+(5*24+10)*3600000+30*60000;
+    const call=async()=>{window.rpcCalls++;return{ok:true,value:{status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:window.fixtureResetAt}],limitReached:false,credits:null}};};
     window.quotaPlugin.apply({connection:{rpc:{call}},effect(fn){window.disposers.push(fn());},slots:{inject(n,fn){window.disposers.push(fn());},register(def,Comp){const root=document.createElement('div');document.body.append(root);const r=ReactDOM.createRoot(root);r.render(React.createElement(Comp,def.inject()));return()=>{r.unmount();root.remove();};}}});
   });
   await page.getByTestId('codex-quota-badge').waitFor();
@@ -28,12 +28,13 @@ try {
   await fixture(page);
   const badge=page.getByTestId('codex-quota-badge'), toggle=page.locator('.dsh-codex-quota-toggle'), panel=page.locator('.dsh-codex-quota-panel');
   assert.equal(await panel.count(),0);
+  assert.equal(await toggle.innerText(),'5天10小时 99%');
   assert.equal(await badge.evaluate(el=>innerHeight-el.getBoundingClientRect().bottom),96);
-  await toggle.hover();await panel.waitFor({state:'visible'});assert.match(await panel.innerText(),/剩余 99%/);
+  await toggle.hover();await panel.waitFor({state:'visible'});assert.match(await panel.innerText(),/剩余 99%/);assert.match(await panel.innerText(),/7 天/);assert.match(await panel.innerText(),/重置：/);
   const t=await toggle.boundingBox(),p=await panel.boundingBox();
   await page.mouse.move(t.x+t.width/2,(t.y+p.y+p.height)/2);assert.equal(await panel.isVisible(),true,'hover bridge keeps the gap open');
   await panel.hover();assert.equal(await panel.isVisible(),true,'moving inside panel must not close it');
-  const out=process.env.ARTIFACT_DIR || fileURLToPath(new URL('../test-results/',import.meta.url));fs.mkdirSync(out,{recursive:true});await panel.screenshot({path:path.join(out,'quota-hover-light.png')});
+  const out=process.env.ARTIFACT_DIR || fileURLToPath(new URL('../test-results/',import.meta.url));fs.mkdirSync(out,{recursive:true});await toggle.screenshot({path:path.join(out,'quota-countdown-badge.png')});await panel.screenshot({path:path.join(out,'quota-hover-light.png')});
   const closeStart=Date.now();await page.mouse.move(20,20);
   await page.waitForFunction(()=>!document.querySelector('.dsh-codex-quota-panel'),{},{polling:'raf',timeout:500});
   const mouseCloseMs=Date.now()-closeStart;assert.ok(mouseCloseMs<250,'no delayed closing timer');
@@ -57,5 +58,5 @@ try {
   await touchToggle.tap();assert.equal(await touchPanel.count(),0);
   await touchToggle.tap();await touch.locator('.dsh-codex-quota-close').tap();assert.equal(await touchPanel.count(),0);
   await touchContext.close();
-  console.log(JSON.stringify({fixture:'pass',hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
+  console.log(JSON.stringify({fixture:'pass',resetCountdown:true,detailWindowLabelsRetained:true,hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
 } finally { await browser.close(); }

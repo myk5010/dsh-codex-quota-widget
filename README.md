@@ -1,11 +1,12 @@
 # dsh-codex-quota-widget
 
-DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.2**。
+DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.3**。
 本仓库是后续插件更新的源码主线；现有DSH部署不依赖此目录的实时改动。
 
 ## 功能
 
-- 显示上游实际额度窗口的剩余百分比、重置时间、上次成功更新；没有返回的窗口不伪造，不估算绝对token余额。
+- 角标显示距额度重置的倒计时和剩余百分比，例如 `5天10小时 57%`；短于一天显示小时/分钟。详情保留窗口名称、绝对重置时间及上次成功更新。
+- 倒计时使用上游实际 `resetAt`，随原有5秒刷新计算；重置时间缺失显示“重置时间未知”，时间已过显示“待刷新”，不假定额度已经恢复。不伪造窗口或绝对token余额。
 - 桌面悬停打开，鼠标移出角标/面板整体范围立即关闭；跨空隙和面板内部不会误关。
 - 触屏点击切换，支持键盘focus/Enter/Esc；桌面距底边96px、手机88px；确认模态打开时自动避让。
 - 页面每5秒请求；宿主共享缓存/单飞，避免多标签放大上游流量；后台标签暂停，切回即查询。
@@ -51,7 +52,7 @@ sha256sum dist/*.tgz
 经确认后在DSH插件页安装tarball并启用组合包，或：
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.2.tgz --ignore-scripts
+dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.3.tgz --ignore-scripts
 ```
 
 当前bundle配置见 [cordis.patch.yml](<cordis.patch.yml>)：`pollIntervalMs: 5000`、`timeoutMs: 10000`。

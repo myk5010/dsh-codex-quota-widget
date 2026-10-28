@@ -18,11 +18,25 @@ function windowLabel(w) {
 }
 function percent(n) { return typeof n === 'number' && Number.isFinite(n) ? `${Math.round(n * 10) / 10}%` : '未知'; }
 function clock(ms) { return typeof ms === 'number' && Number.isFinite(ms) ? new Date(ms).toLocaleString('zh-CN', { hour12: false }) : '未提供'; }
-function brief(data) {
+function resetCountdown(resetAt, now = Date.now()) {
+  if (typeof resetAt !== 'number' || !Number.isFinite(resetAt) || resetAt <= 0 || !Number.isFinite(now))
+    return '重置时间未知';
+  const remainingMs = resetAt - now;
+  if (remainingMs <= 0) return '待刷新';
+  const minutes = Math.floor(remainingMs / 60000);
+  const hours = Math.floor(minutes / 60);
+  const days = Math.floor(hours / 24);
+  if (days > 0) return `${days}天${hours % 24}小时`;
+  if (hours > 0) return `${hours}小时${minutes % 60}分钟`;
+  if (minutes > 0) return `${minutes}分钟`;
+  return '不足1分钟';
+}
+function brief(data, now = Date.now()) {
   if (data.windows?.length) {
     const w = data.windows.filter(x => x.group === 'codex');
-    const text = (w.length ? w : data.windows).slice(0, 2).map(x => `${windowLabel(x)} ${percent(x.remainingPercent)}`).join(' · ');
-    return `Codex ${text}${data.stale || data.status !== 'ok' ? '（过期）' : ''}`;
+    const text = (w.length ? w : data.windows).slice(0, 2)
+      .map(x => `${resetCountdown(x.resetAt, now)} ${percent(x.remainingPercent)}`).join(' · ');
+    return `${text}${data.stale || data.status !== 'ok' ? '（过期）' : ''}`;
   }
   return `Codex · ${ERRORS[data.errorCode] || (data.status === 'loading' ? '查询中…' : '额度未知')}`;
 }
@@ -133,4 +147,4 @@ exports.apply = ctx => {
   }, Badge));
 };
 // Export pure parts for the bundle/clock/UI regression tests, not host credentials.
-exports.testing = { createPoller, windowLabel, percent, brief, Badge, CSS };
+exports.testing = { createPoller, windowLabel, percent, resetCountdown, brief, Badge, CSS };
