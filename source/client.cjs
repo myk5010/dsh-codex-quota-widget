@@ -2,7 +2,7 @@ const React = require('react');
 const h = React.createElement;
 const POLL_MS = 5000;
 const ERRORS = {
-  not_logged_in: '未登录 Codex', login_expired: '登录已过期', access_denied: '额度接口拒绝访问',
+  not_logged_in: '未登录 Codex', login_expired: '需要重新登录', access_denied: '额度接口拒绝访问',
   rate_limited: '接口限流，稍后重试', network_error: '网络错误，稍后重试',
   upstream_error: '上游暂时不可用', schema_changed: '额度格式未知', connection_error: 'DSH 连接中断',
 };
@@ -36,9 +36,9 @@ function brief(data, now = Date.now()) {
     const w = data.windows.filter(x => x.group === 'codex');
     const text = (w.length ? w : data.windows).slice(0, 2)
       .map(x => `${resetCountdown(x.resetAt, now)} ${percent(x.remainingPercent)}`).join(' · ');
-    return `${text}${data.stale || data.status !== 'ok' ? '（过期）' : ''}`;
+    return text;
   }
-  return `Codex · ${ERRORS[data.errorCode] || (data.status === 'loading' ? '查询中…' : '额度未知')}`;
+  return data.status === 'loading' ? '查询中…' : '';
 }
 
 function createPoller({ call, onChange, timers = globalThis, documentRef = null }) {
@@ -78,7 +78,7 @@ const CSS = `
 .dsh-codex-quota button { font:inherit; cursor:pointer; color:inherit; }
 .dsh-codex-quota-toggle { display:flex; align-items:center; gap:6px; max-width:min(390px,calc(100vw - 32px)); padding:5px 10px; border:1px solid var(--dsw-alias-border-primary,#d4d4d8); border-radius:16px; background:var(--dsw-alias-background-primary,#fff); box-shadow:0 2px 10px #0002; text-align:left; }
 .dsh-codex-quota-dot { width:7px; height:7px; flex-shrink:0; background:#16a34a; border-radius:50%; }
-.dsh-codex-quota-dot[data-state=error] { background:#d97706; }
+.dsh-codex-quota-dot[data-state=error] { background:#dc2626; }
 .dsh-codex-quota-dot[data-state=empty] { background:#dc2626; }
 .dsh-codex-quota-panel { position:absolute; right:0; bottom:38px; width:min(320px,calc(100vw - 32px)); box-sizing:border-box; padding:14px; border:1px solid var(--dsw-alias-border-primary,#d4d4d8); border-radius:12px; background:var(--dsw-alias-background-primary,#fff); box-shadow:0 4px 24px #0003; max-height:65vh; overflow:auto; }
 .dsh-codex-quota-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-bottom:8px; }
@@ -105,7 +105,7 @@ function Badge({ call }) {
     const close = e => { if (e.key === 'Escape') setExpanded(false); };
     document.addEventListener('keydown', close); return () => document.removeEventListener('keydown', close);
   }, [expanded]);
-  const state = data.status !== 'ok' || data.stale ? 'error' : data.limitReached || data.windows.some(w => w.remainingPercent === 0) ? 'empty' : 'ok';
+  const state = data.status !== 'ok' || data.stale || data.windows.length === 0 ? 'error' : data.limitReached || data.windows.some(w => w.remainingPercent === 0) ? 'empty' : 'ok';
   return h('div', { className: 'dsh-codex-quota', 'data-testid': 'codex-quota-badge', 'data-expanded': expanded,
     onPointerEnter: e => { if (e.pointerType === 'mouse' || e.pointerType === 'pen') setExpanded(true); },
     onPointerLeave: e => { if (e.pointerType !== 'touch') setExpanded(false); },
@@ -116,7 +116,6 @@ function Badge({ call }) {
       h('div', { className: 'dsh-codex-quota-head' }, h('span', { className: 'dsh-codex-quota-title' }, 'ChatGPT Codex 额度'),
         h('button', { className: 'dsh-codex-quota-close', 'aria-label': '收起额度详情', onClick: () => setExpanded(false) }, '×')),
       data.errorCode && h('div', { className: 'dsh-codex-quota-warning' }, ERRORS[data.errorCode] || '查询失败'),
-      data.stale && h('div', { className: 'dsh-codex-quota-warning' }, '以下为上次成功数据，当前已过期。'),
       data.limitReached === true && h('div', { className: 'dsh-codex-quota-warning' }, '上游报告额度已耗尽。'),
       data.windows.map(w => h('div', { className: 'dsh-codex-quota-row', key: w.id },
         h('div', { className: 'dsh-codex-quota-row-top' }, h('span', null, windowLabel(w)), h('strong', null, `剩余 ${percent(w.remainingPercent)}`)),
@@ -131,7 +130,7 @@ function Badge({ call }) {
         if (e.detail === 0 || e.nativeEvent?.pointerType === 'touch' || !window.matchMedia('(hover: hover)').matches)
           setExpanded(value => !value);
       },
-      'aria-expanded': expanded, 'aria-controls': 'dsh-codex-quota-details', 'aria-label': '查看 Codex 剩余额度与重置时间' },
+      'aria-expanded': expanded, 'aria-controls': 'dsh-codex-quota-details', 'aria-label': state === 'error' ? 'Codex 额度查询异常，查看详情' : '查看 Codex 剩余额度与重置时间' },
       h('span', { className: 'dsh-codex-quota-dot', 'data-state': state, 'aria-hidden': true }),
       h('span', null, brief(data))));
 }

@@ -16,7 +16,15 @@ async function fixture(page) {
   await page.addScriptTag({path:new URL('../lib/client.js',import.meta.url).pathname});
   await page.evaluate(()=>{
     window.rpcCalls=0;window.disposers=[];window.fixtureResetAt=Date.now()+(5*24+10)*3600000+30*60000;
-    const call=async()=>{window.rpcCalls++;return{ok:true,value:{status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:window.fixtureResetAt}],limitReached:false,credits:null}};};
+    window.fixtureMode='ok';window.fixtureLastGood=null;
+    const call=async()=>{
+      window.rpcCalls++;
+      if(window.fixtureMode==='rpc_error')return{ok:false,error:{message:'mock request failure'}};
+      if(window.fixtureMode==='host_error')return{ok:true,value:{...window.fixtureLastGood,status:'error',errorCode:'network_error',stale:true}};
+      if(window.fixtureMode==='no_data')return{ok:true,value:{...window.fixtureLastGood,status:'error',errorCode:'login_expired',windows:[],updatedAt:null,stale:false}};
+      const value={status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:window.fixtureResetAt}],limitReached:false,credits:null};
+      window.fixtureLastGood=value;return{ok:true,value};
+    };
     window.quotaPlugin.apply({connection:{rpc:{call}},effect(fn){window.disposers.push(fn());},slots:{inject(n,fn){window.disposers.push(fn());},register(def,Comp){const root=document.createElement('div');document.body.append(root);const r=ReactDOM.createRoot(root);r.render(React.createElement(Comp,def.inject()));return()=>{r.unmount();root.remove();};}}});
   });
   await page.getByTestId('codex-quota-badge').waitFor();
@@ -58,5 +66,25 @@ try {
   await touchToggle.tap();assert.equal(await touchPanel.count(),0);
   await touchToggle.tap();await touch.locator('.dsh-codex-quota-close').tap();assert.equal(await touchPanel.count(),0);
   await touchContext.close();
-  console.log(JSON.stringify({fixture:'pass',resetCountdown:true,detailWindowLabelsRetained:true,hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
+
+  const errorContext=await browser.newContext({viewport:{width:1280,height:800}});
+  const errorPage=await errorContext.newPage();await errorPage.clock.install();await fixture(errorPage);
+  const errorToggle=errorPage.locator('.dsh-codex-quota-toggle'),dot=errorPage.locator('.dsh-codex-quota-dot');
+  const goodText=await errorToggle.innerText();assert.equal(await dot.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(22, 163, 74)');
+  for(const mode of ['rpc_error','host_error']){
+    await errorPage.evaluate(mode=>window.fixtureMode=mode,mode);await errorPage.clock.runFor(5000);
+    await errorPage.waitForFunction(()=>document.querySelector('.dsh-codex-quota-dot')?.dataset.state==='error');
+    assert.equal(await errorToggle.innerText(),goodText);assert.doesNotMatch(await errorToggle.innerText(),/过期|错误|中断|异常/);
+    assert.equal(await dot.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(220, 38, 38)');
+    await errorToggle.hover();assert.doesNotMatch(await errorPage.locator('.dsh-codex-quota-panel').innerText(),/过期/);
+  }
+  await errorToggle.screenshot({path:path.join(out,'quota-error-red-dot.png')});
+  await errorPage.evaluate(()=>window.fixtureMode='no_data');await errorPage.clock.runFor(5000);
+  await errorPage.waitForFunction(()=>document.querySelector('.dsh-codex-quota-toggle')?.textContent==='');
+  assert.equal(await dot.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(220, 38, 38)');
+  await errorPage.evaluate(()=>window.fixtureMode='ok');await errorPage.clock.runFor(5000);
+  await errorPage.waitForFunction(()=>document.querySelector('.dsh-codex-quota-dot')?.dataset.state==='ok');
+  assert.match(await errorToggle.innerText(),/%/);assert.equal(await dot.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(22, 163, 74)');
+  await errorContext.close();
+  console.log(JSON.stringify({quietRedErrors:true,noDataDotOnly:true,recoveryGreen:true,fixture:'pass',resetCountdown:true,detailWindowLabelsRetained:true,hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
 } finally { await browser.close(); }

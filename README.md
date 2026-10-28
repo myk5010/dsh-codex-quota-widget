@@ -1,6 +1,6 @@
 # dsh-codex-quota-widget
 
-DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.3**。
+DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.4**。
 本仓库是后续插件更新的源码主线；现有DSH部署不依赖此目录的实时改动。
 
 ## 功能
@@ -10,7 +10,7 @@ DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.3**。
 - 桌面悬停打开，鼠标移出角标/面板整体范围立即关闭；跨空隙和面板内部不会误关。
 - 触屏点击切换，支持键盘focus/Enter/Esc；桌面距底边96px、手机88px；确认模态打开时自动避让。
 - 页面每5秒请求；宿主共享缓存/单飞，避免多标签放大上游流量；后台标签暂停，切回即查询。
-- 网络错误保留旧数据并标过期；未登录/登录过期清除旧额度；429遵守Retry-After，其它错误指数退避。
+- 查询异常时角标只变红点，不追加“过期”等异常文字；沿用上次可用额度，无可用额度时仅红点。详情保留具体错误和上次成功时间。未登录/需要重新登录时仍清除旧账号数据；429与指数退避策略不变。
 - 使用已有 `llm-pi-ai/openai-codex` OAuth记录；续期在DSH凭据锁内协调，成功轮换令牌不能因为查询取消而丢失。
 - 本插件不发起首次登录；pi-ai CLI 设备码授权和安全导入已有 grant 的步骤见[独立指南](<docs/device-code-login.md>)。
 - 额度摘要走DSH已认证API，不传access/refresh、账号ID、邮箱或原始上游响应给浏览器。
@@ -52,7 +52,7 @@ sha256sum dist/*.tgz
 经确认后在DSH插件页安装tarball并启用组合包，或：
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.3.tgz --ignore-scripts
+dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.4.tgz --ignore-scripts
 ```
 
 当前bundle配置见 [cordis.patch.yml](<cordis.patch.yml>)：`pollIntervalMs: 5000`、`timeoutMs: 10000`。

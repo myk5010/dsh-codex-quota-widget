@@ -1,6 +1,6 @@
 {
   "name": "dsh-codex-quota-widget",
-  "version": "1.0.3",
+  "version": "1.0.4",
   "private": true,
   "description": "DSH Web Codex subscription quota badge with authenticated host-side polling, shared cache and safe OAuth refresh.",
   "type": "module",
