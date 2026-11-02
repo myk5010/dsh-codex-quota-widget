@@ -239,8 +239,13 @@ function Badge({ call, callDebug, clientJournal }) {
       setDebug(info);
       if (action === 'clear') clientJournal?.clear();
       if (action === 'read') downloadDebugExport(buildDebugExport(info, clientJournal?.snapshot()));
-    } catch { setDebugError(true); }
-    finally { setDebugBusy(false); }
+    } catch {
+      setDebugError(true);
+      if (action === 'read') {
+        // The local RPC log is most useful precisely when Host cannot be reached.
+        downloadDebugExport({ ...buildDebugExport(debug, clientJournal?.snapshot()), hostReadFailed: true });
+      }
+    } finally { setDebugBusy(false); }
   }
   React.useEffect(() => {
     if (!expanded) return;
