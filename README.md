@@ -1,6 +1,6 @@
 # dsh-codex-quota-widget
 
-DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.4**。
+DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.1.0**。
 本仓库是后续插件更新的源码主线；现有DSH部署不依赖此目录的实时改动。
 
 ## 功能
@@ -14,6 +14,7 @@ DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.0.4**。
 - 使用已有 `llm-pi-ai/openai-codex` OAuth记录；续期在DSH凭据锁内协调，成功轮换令牌不能因为查询取消而丢失。
 - 本插件不发起首次登录；pi-ai CLI 设备码授权和安全导入已有 grant 的步骤见[独立指南](<docs/device-code-login.md>)。
 - 额度摘要走DSH已认证API，不传access/refresh、账号ID、邮箱或原始上游响应给浏览器。
+- 悬浮详情有默认关闭的 **Debug 日志**：限量内存记录HTTP状态、阶段/耗时/超时、网络错误与退避，以及浏览器RPC耗时；可清空/导出，30分钟自动停止。详见[调试指南](<docs/debug.md>)。
 
 本插件**不是完整模型接入代理**。SSE/模型配置由DSH适配器管理；请求性能列表及特殊模型错误恢复尚未实现。
 
@@ -52,7 +53,7 @@ sha256sum dist/*.tgz
 经确认后在DSH插件页安装tarball并启用组合包，或：
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.4.tgz --ignore-scripts
+dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.1.0.tgz --ignore-scripts
 ```
 
 当前bundle配置见 [cordis.patch.yml](<cordis.patch.yml>)：`pollIntervalMs: 5000`、`timeoutMs: 10000`。
@@ -70,8 +71,9 @@ dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.0.4
 ```text
 host.js                 DSH接线与安全续期
 monitor.js              额度归一化、共享缓存与退避
+debug.js                默认关闭的有界、脱敏Host日志
 source/client.cjs       界面、悬停交互和5秒轮询
-scripts/build.mjs       生成DSH客户端factory
+scripts/build.mjs       生成客户端factory及版本化Host/依赖
 cordis.patch.yml        独立组合包声明
 tests/                  mock单元/浏览器回归
 .github/workflows/      仅构建测试，不接真实账号/不自动部署

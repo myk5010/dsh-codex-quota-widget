@@ -1,9 +1,10 @@
 // No DSH dependencies or credentials in the public snapshot.
+import { safeErrorFields, safeContentType } from './debug.js';
 export const USAGE_URL = 'https://chatgpt.com/backend-api/wham/usage';
 export const TOKEN_URL = 'https://auth.openai.com/oauth/token';
 export const POLL_MS = 5000;
 export class QuotaError extends Error {
-  constructor(code, retryMs = 0) { super(code); this.code = code; this.retryMs = retryMs; }
+  constructor(code, retryMs = 0, cause) { super(code, cause === undefined ? undefined : { cause }); this.code = code; this.retryMs = retryMs; }
 }
 const finite = n => typeof n === 'number' && Number.isFinite(n);
 const object = x => x !== null && typeof x === 'object' && !Array.isArray(x);
@@ -76,54 +77,70 @@ export async function readJson(response, maxBytes = 1048576) {
     return JSON.parse(new TextDecoder().decode(joined));
   } catch (error) {
     if (error instanceof QuotaError) throw error;
-    throw new QuotaError(error?.name === 'AbortError' ? 'network_error' : 'schema_changed');
+    throw new QuotaError(error?.name === 'AbortError' ? 'network_error' : 'schema_changed', 0, error);
   } finally { await reader.cancel().catch(() => {}); }
 }
 
 export class QuotaMonitor {
-  constructor({ readGrant, fetchImpl = fetch, now = Date.now, pollIntervalMs = POLL_MS, timeoutMs = 10000 }) {
+  constructor({ readGrant, fetchImpl = fetch, now = Date.now, pollIntervalMs = POLL_MS, timeoutMs = 10000, diagnostics = null }) {
     this.readGrant = readGrant; this.fetchImpl = fetchImpl; this.now = now;
     this.pollIntervalMs = Math.max(POLL_MS, pollIntervalMs); this.timeoutMs = timeoutMs;
     this.state = { status: 'loading', errorCode: null, updatedAt: null, checkedAt: null,
       nextFetchAt: 0, pollIntervalMs: this.pollIntervalMs, plan: null, windows: [],
       allowed: null, limitReached: null, credits: null };
     this.identity = null; this.inflight = null; this.controller = null; this.failures = 0;
-    this.disposed = false; this.epoch = 0;
+    this.disposed = false; this.epoch = 0; this.diagnostics = diagnostics; this.requestSeq = 0;
+  }
+  emit(event, details = {}) {
+    try { this.diagnostics?.record(event, details); } catch { /* Diagnostics are fail-open. */ }
   }
   snapshot() {
     return { ...this.state, stale: this.state.windows.length > 0 &&
       (this.state.status !== 'ok' || this.now() - this.state.updatedAt > this.pollIntervalMs * 2) };
   }
   invalidate() {
+    this.emit('credentials_changed', { aborted: !!this.controller });
     this.epoch++; this.controller?.abort(); this.state.nextFetchAt = 0;
     this.state = { ...this.state, status: 'loading', windows: [], plan: null,
       allowed: null, limitReached: null, credits: null, updatedAt: null, errorCode: null };
   }
   async getStatus() {
     if (this.disposed) return { ...this.snapshot(), status: 'disabled' };
-    if (this.inflight) { await this.inflight; return this.snapshot(); }
-    if (this.now() < this.state.nextFetchAt) return this.snapshot();
+    if (this.inflight) { this.emit('join_inflight'); await this.inflight; return this.snapshot(); }
+    if (this.now() < this.state.nextFetchAt) {
+      this.emit('cache_hit', { cacheAgeMs: this.state.updatedAt ? this.now() - this.state.updatedAt : 0,
+        retryMs: this.state.nextFetchAt - this.now() });
+      return this.snapshot();
+    }
     this.inflight = this.update();
     try { await this.inflight; } finally { this.inflight = null; }
     return this.snapshot();
   }
   async update() {
-    const epoch = this.epoch; const startedAt = this.now();
+    const epoch = this.epoch; const startedAt = this.now(); const requestId = `q${++this.requestSeq}`;
+    let stage = 'credentials_read', timedOut = false, httpStatus;
+    const emit = (event, details = {}) => this.emit(event, { ...details, requestId, stage,
+      elapsedMs: this.now() - startedAt, timeoutMs: this.timeoutMs });
+    const setStage = value => { stage = value; emit('stage'); };
     const controller = new AbortController(); this.controller = controller;
-    const timeout = setTimeout(() => controller.abort(), this.timeoutMs); timeout.unref?.();
+    emit('query_started', { pollIntervalMs: this.pollIntervalMs });
+    const timeout = setTimeout(() => { timedOut = true; emit('deadline_exceeded', { timedOut: true }); controller.abort(); }, this.timeoutMs); timeout.unref?.();
     try {
-      const grant = await this.readGrant(controller.signal);
+      const grant = await this.readGrant(controller.signal, { stage: setStage, record: emit });
       if (!grant) throw new QuotaError('not_logged_in');
       if (this.identity !== grant.accountId) {
         this.identity = grant.accountId;
         this.state = { ...this.state, windows: [], plan: null, updatedAt: null, allowed: null,
           limitReached: null, credits: null };
       }
+      setStage('upstream_fetch');
       const response = await this.fetchImpl(USAGE_URL, {
         headers: { Authorization: `Bearer ${grant.access}`, 'chatgpt-account-id': grant.accountId,
           originator: 'pi', Accept: 'application/json' },
         signal: controller.signal, redirect: 'error',
       });
+      httpStatus = response.status;
+      emit('upstream_headers', { httpStatus, contentType: safeContentType(response.headers.get('content-type')) });
       if (!response.ok) {
         await response.body?.cancel().catch(() => {});
         if (response.status === 401) throw new QuotaError('login_expired');
@@ -131,13 +148,17 @@ export class QuotaMonitor {
         if (response.status === 429) throw new QuotaError('rate_limited', retryAfterMs(response.headers.get('retry-after'), this.now()));
         throw new QuotaError('upstream_error');
       }
-      const quota = normalizeQuota(await readJson(response), this.now());
-      if (this.disposed || epoch !== this.epoch) return;
+      setStage('body_read');
+      const raw = await readJson(response);
+      setStage('normalize');
+      const quota = normalizeQuota(raw, this.now());
+      if (this.disposed || epoch !== this.epoch) { emit('query_cancelled', { aborted: controller.signal.aborted }); return; }
       this.failures = 0;
       this.state = { ...this.state, ...quota, status: 'ok', errorCode: null,
         checkedAt: this.now(), updatedAt: this.now(), nextFetchAt: startedAt + this.pollIntervalMs };
+      emit('query_succeeded', { httpStatus, durationMs: this.now() - startedAt });
     } catch (error) {
-      if (this.disposed || epoch !== this.epoch) return;
+      if (this.disposed || epoch !== this.epoch) { emit('query_cancelled', { aborted: controller.signal.aborted }); return; }
       const code = error instanceof QuotaError ? error.code : 'network_error';
       this.failures++;
       const delay = Math.max(error instanceof QuotaError ? error.retryMs : 0,
@@ -148,6 +169,9 @@ export class QuotaMonitor {
       }
       this.state = { ...this.state, status: code === 'not_logged_in' ? 'not_logged_in' : 'error',
         errorCode: code, checkedAt: this.now(), nextFetchAt: this.now() + delay };
+      emit('query_failed', { ...safeErrorFields(error), errorCode: code, httpStatus, timedOut,
+        aborted: controller.signal.aborted, durationMs: this.now() - startedAt, failures: this.failures });
+      emit('backoff', { errorCode: code, retryMs: delay, failures: this.failures });
     } finally { clearTimeout(timeout); if (this.controller === controller) this.controller = null; }
   }
   dispose() { this.disposed = true; this.controller?.abort(); }

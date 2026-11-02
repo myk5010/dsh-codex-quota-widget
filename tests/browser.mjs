@@ -16,13 +16,29 @@ async function fixture(page) {
   await page.addScriptTag({path:new URL('../lib/client.js',import.meta.url).pathname});
   await page.evaluate(()=>{
     window.rpcCalls=0;window.disposers=[];window.fixtureResetAt=Date.now()+(5*24+10)*3600000+30*60000;
-    window.fixtureMode='ok';window.fixtureLastGood=null;
-    const call=async()=>{
+    window.fixtureMode='ok';window.fixtureLastGood=null;window.debugActions=[];window.fixtureDebugFail=false;
+    window.fixtureDebug={enabled:false,startedAt:null,expiresAt:null,generation:0,count:0,lastSeq:0,maxEntries:300,ttlMs:1800000,timeoutMs:10000,pollIntervalMs:5000,entries:[]};
+    const event=(name,fields={})=>{const d=window.fixtureDebug;d.entries.push({source:'host',seq:++d.lastSeq,timestampMs:Date.now(),event:name,...fields});d.entries=d.entries.slice(-300);d.count=d.entries.length;};
+    const metadata=(all=false)=>{const d=window.fixtureDebug;if(d.enabled&&Date.now()>=d.expiresAt){d.enabled=false;event('debug_expired');}return{...d,entries:d.entries.slice(all?-300:-30)};};
+    const call=async(base,route,args)=>{
+      if(base!=='/api')throw Error('fixture route mismatch');
+      if(route==='codex-quota/debug'){
+        window.debugActions.push(args.action);
+        if(window.fixtureDebugFail)return{ok:false,error:{message:'PRIVATE_DEBUG_FAILURE'}};
+        const d=window.fixtureDebug;
+        if(args.action==='enable'&&!d.enabled){d.enabled=true;d.generation++;d.startedAt=Date.now();d.expiresAt=d.startedAt+(window.fixtureDebugTtlMs||1800000);d.entries=[];d.lastSeq=0;event('debug_enabled');}
+        if(args.action==='disable'&&d.enabled){event('debug_disabled');d.enabled=false;}
+        if(args.action==='clear'){d.entries=[];d.count=0;}
+        return{ok:true,value:metadata(args.action==='read')};
+      }
+      if(route!=='codex-quota/status')throw Error('fixture route mismatch');
       window.rpcCalls++;
       if(window.fixtureMode==='rpc_error')return{ok:false,error:{message:'mock request failure'}};
-      if(window.fixtureMode==='host_error')return{ok:true,value:{...window.fixtureLastGood,status:'error',errorCode:'network_error',stale:true}};
-      if(window.fixtureMode==='no_data')return{ok:true,value:{...window.fixtureLastGood,status:'error',errorCode:'login_expired',windows:[],updatedAt:null,stale:false}};
-      const value={status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:window.fixtureResetAt}],limitReached:false,credits:null};
+      metadata();if(window.fixtureDebug.enabled)event('rpc_completed',{stage:'rpc',durationMs:8,httpStatus:200,message:'PRIVATE_HOST_MESSAGE',headers:{Authorization:'PRIVATE_TOKEN'}});
+      const debug=metadata();
+      if(window.fixtureMode==='host_error')return{ok:true,value:{...window.fixtureLastGood,debug,status:'error',errorCode:'network_error',stale:true}};
+      if(window.fixtureMode==='no_data')return{ok:true,value:{...window.fixtureLastGood,debug,status:'error',errorCode:'login_expired',windows:[],updatedAt:null,stale:false}};
+      const value={status:'ok',errorCode:null,stale:false,updatedAt:Date.now(),nextFetchAt:Date.now()+5000,windows:[{id:'codex:primary_window',group:'codex',windowSeconds:604800,remainingPercent:100-window.rpcCalls,resetAt:window.fixtureResetAt}],limitReached:false,credits:null,debug,account:'PRIVATE_ACCOUNT',token:'PRIVATE_QUOTA_TOKEN'};
       window.fixtureLastGood=value;return{ok:true,value};
     };
     window.quotaPlugin.apply({connection:{rpc:{call}},effect(fn){window.disposers.push(fn());},slots:{inject(n,fn){window.disposers.push(fn());},register(def,Comp){const root=document.createElement('div');document.body.append(root);const r=ReactDOM.createRoot(root);r.render(React.createElement(Comp,def.inject()));return()=>{r.unmount();root.remove();};}}});
@@ -86,5 +102,28 @@ try {
   await errorPage.waitForFunction(()=>document.querySelector('.dsh-codex-quota-dot')?.dataset.state==='ok');
   assert.match(await errorToggle.innerText(),/%/);assert.equal(await dot.evaluate(el=>getComputedStyle(el).backgroundColor),'rgb(22, 163, 74)');
   await errorContext.close();
-  console.log(JSON.stringify({quietRedErrors:true,noDataDotOnly:true,recoveryGreen:true,fixture:'pass',resetCountdown:true,detailWindowLabelsRetained:true,hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
+  const debugContext=await browser.newContext({viewport:{width:1280,height:800},acceptDownloads:true});
+  const debugPage=await debugContext.newPage();await debugPage.clock.install();await fixture(debugPage);
+  const debugErrors=[];debugPage.on('pageerror',e=>debugErrors.push(e.message));
+  const debugToggle=debugPage.locator('.dsh-codex-quota-toggle'),debugPanel=debugPage.locator('.dsh-codex-quota-panel');
+  await debugToggle.hover();const debugSwitch=debugPage.getByRole('checkbox',{name:'Debug 日志'}),debugLog=debugPage.getByLabel('Host 调试日志');
+  assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugPanel.innerText(),/默认关闭 \/ 内存最近300条 \/ 30分钟自动停止/);
+  await debugPage.clock.runFor(5000);assert.deepEqual(await debugPage.evaluate(()=>window.debugActions),[],'normal polling must never read debug API');
+  await debugSwitch.check();assert.equal(await debugSwitch.isChecked(),true);assert.match(await debugLog.innerText(),/debug_enabled/);
+  assert.ok((await debugPanel.boundingBox()).width<=320);
+  await debugPage.clock.runFor(155000);await debugPage.waitForFunction(()=>document.querySelector('.dsh-codex-quota-debug-log')?.textContent.includes('rpc_completed'));
+  assert.match(await debugLog.innerText(),/rpc_completed.*rpc.*8ms.*HTTP 200/);assert.doesNotMatch(await debugLog.innerText(),/PRIVATE/);
+  assert.match(await debugPanel.innerText(),/最近 30 条/);assert.deepEqual(await debugPage.evaluate(()=>window.debugActions),['enable'],'viewing logs piggybacks only on normal status polling');
+  await debugSwitch.uncheck();assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugLog.innerText(),/debug_disabled/);
+  async function exported(){const pending=debugPage.waitForEvent('download');await debugPage.getByRole('button',{name:'导出 JSON'}).click();const download=await pending;assert.equal(download.suggestedFilename(),'codex-quota-debug.json');const stream=await download.createReadStream();const chunks=[];for await(const chunk of stream)chunks.push(chunk);return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
+  let exportedLog=await exported();assert.equal(exportedLog.schemaVersion,1);assert.ok(exportedLog.host.entries.length>30,'explicit export reads full Host log');assert.equal(exportedLog.host.enabled,false);assert.ok(exportedLog.client.entries.length>0);
+  assert.equal(exportedLog.config.clientRpcTimeoutMs,15000);assert.equal(exportedLog.config.timeoutMs,10000);assert.equal(exportedLog.config.pollIntervalMs,5000);
+  assert.doesNotMatch(JSON.stringify(exportedLog),/PRIVATE|windows|credits|remainingPercent|Authorization|account|token/);
+  const clientCount=exportedLog.client.entries.length;await debugPage.clock.runFor(10000);exportedLog=await exported();assert.equal(exportedLog.client.entries.length,clientCount,'disabled client recording stays stopped');
+  await debugPage.getByRole('button',{name:'清空日志'}).click();assert.equal(await debugLog.innerText(),'暂无日志');exportedLog=await exported();assert.equal(exportedLog.host.entries.length,0);assert.equal(exportedLog.client.entries.length,0);
+  await debugPage.evaluate(()=>window.fixtureDebugFail=true);await debugSwitch.click();await debugPage.getByRole('status').waitFor();assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugPanel.innerText(),/调试操作失败/);assert.doesNotMatch(await debugPanel.innerText(),/PRIVATE_DEBUG_FAILURE/);
+  await debugPage.evaluate(()=>{window.fixtureDebugFail=false;window.fixtureDebugTtlMs=1000;});await debugSwitch.check();assert.equal(await debugSwitch.isChecked(),true);
+  const beforeTTL=await debugPage.evaluate(()=>window.rpcCalls);await debugPage.clock.runFor(1000);assert.equal(await debugSwitch.isChecked(),false,'local TTL turns switch off even before fresh Host metadata');assert.equal(await debugPage.evaluate(()=>window.rpcCalls),beforeTTL,'TTL does not issue another RPC');
+  assert.equal(debugErrors.length,0);await debugContext.close();
+  console.log(JSON.stringify({debugDefaultOff:true,debugToggle:true,debugLatest30:true,debugFullSafeDownload:true,debugClearBoth:true,debugDisableRetainsLogs:true,debugTTL:true,debugGenericErrors:true,quietRedErrors:true,noDataDotOnly:true,recoveryGreen:true,fixture:'pass',resetCountdown:true,detailWindowLabelsRetained:true,hoverOpens:true,gapKeepsOpen:true,panelHoverKeepsOpen:true,mouseCloseMs,desktopClickNoToggle:true,keyboard:true,touchTap:true,positionsRetained:true,modalAvoidance:true,pollIntervalMs:5000,unmountStopsPolling:true,pageErrors:0}));
 } finally { await browser.close(); }

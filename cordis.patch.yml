@@ -1,6 +1,6 @@
 - insert:
     - id: codex-quota
-      name: dsh-codex-quota-widget
+      name: ./lib/host.1.1.0.js
       config:
         pollIntervalMs: 5000
         timeoutMs: 10000
