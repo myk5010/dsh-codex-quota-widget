@@ -1,7 +1,7 @@
 const React = require('react');
 const h = React.createElement;
 const POLL_MS = 5000;
-const RPC_TIMEOUT_MS = 15000;
+const RPC_TIMEOUT_MS = 30000;
 const DEBUG_LIMIT = 300;
 const DEBUG_TTL_MS = 1800000;
 // Never copy arbitrary RPC objects into diagnostics, even when the Host is trusted.
@@ -37,7 +37,7 @@ function safeDebugInfo(input, now = Date.now()) {
   const value = input && typeof input === 'object' ? input : {};
   const out = { enabled: false, startedAt: safeNumber(value.startedAt), expiresAt: safeNumber(value.expiresAt), generation: safeNumber(value.generation) ?? 0,
     count: Math.min(DEBUG_LIMIT, safeNumber(value.count) ?? 0), lastSeq: safeNumber(value.lastSeq) ?? 0,
-    maxEntries: DEBUG_LIMIT, ttlMs: DEBUG_TTL_MS, timeoutMs: safeNumber(value.timeoutMs) ?? 10000, pollIntervalMs: POLL_MS };
+    maxEntries: DEBUG_LIMIT, ttlMs: DEBUG_TTL_MS, timeoutMs: safeNumber(value.timeoutMs) ?? 20000, pollIntervalMs: POLL_MS };
   out.enabled = value.enabled === true && out.expiresAt !== null && now < out.expiresAt;
   out.entries = Array.isArray(value.entries) ? value.entries.slice(-DEBUG_LIMIT).map(safeHostEntry).filter(Boolean) : [];
   return out;
@@ -277,6 +277,7 @@ function Badge({ call, callDebug, clientJournal }) {
         h('label', null, h('input', { type: 'checkbox', checked: safeDebugInfo(debug).enabled, disabled: debugBusy || !callDebug,
           onChange: event => void debugAction(event.target.checked ? 'enable' : 'disable') }), 'Debug 日志'),
         h('div', { className: 'dsh-codex-quota-muted' }, '默认关闭 / 内存最近300条 / 30分钟自动停止'),
+        h('div', { className: 'dsh-codex-quota-muted' }, `Host 预算 ${debug.timeoutMs / 1000} 秒 · 浏览器等待 ${RPC_TIMEOUT_MS / 1000} 秒`),
         h('div', { className: 'dsh-codex-quota-debug-actions' },
           h('button', { type: 'button', disabled: debugBusy || !callDebug, onClick: () => void debugAction('clear') }, '清空日志'),
           h('button', { type: 'button', disabled: debugBusy || !callDebug, onClick: () => void debugAction('read') }, '导出 JSON')),

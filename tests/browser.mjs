@@ -17,7 +17,7 @@ async function fixture(page) {
   await page.evaluate(()=>{
     window.rpcCalls=0;window.disposers=[];window.fixtureResetAt=Date.now()+(5*24+10)*3600000+30*60000;
     window.fixtureMode='ok';window.fixtureLastGood=null;window.debugActions=[];window.fixtureDebugFail=false;
-    window.fixtureDebug={enabled:false,startedAt:null,expiresAt:null,generation:0,count:0,lastSeq:0,maxEntries:300,ttlMs:1800000,timeoutMs:10000,pollIntervalMs:5000,entries:[]};
+    window.fixtureDebug={enabled:false,startedAt:null,expiresAt:null,generation:0,count:0,lastSeq:0,maxEntries:300,ttlMs:1800000,timeoutMs:20000,pollIntervalMs:5000,entries:[]};
     const event=(name,fields={})=>{const d=window.fixtureDebug;d.entries.push({source:'host',seq:++d.lastSeq,timestampMs:Date.now(),event:name,...fields});d.entries=d.entries.slice(-300);d.count=d.entries.length;};
     const metadata=(all=false)=>{const d=window.fixtureDebug;if(d.enabled&&Date.now()>=d.expiresAt){d.enabled=false;event('debug_expired');}return{...d,entries:d.entries.slice(all?-300:-30)};};
     const call=async(base,route,args)=>{
@@ -107,7 +107,7 @@ try {
   const debugErrors=[];debugPage.on('pageerror',e=>debugErrors.push(e.message));
   const debugToggle=debugPage.locator('.dsh-codex-quota-toggle'),debugPanel=debugPage.locator('.dsh-codex-quota-panel');
   await debugToggle.hover();const debugSwitch=debugPage.getByRole('checkbox',{name:'Debug 日志'}),debugLog=debugPage.getByLabel('Host 调试日志');
-  assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugPanel.innerText(),/默认关闭 \/ 内存最近300条 \/ 30分钟自动停止/);
+  assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugPanel.innerText(),/默认关闭 \/ 内存最近300条 \/ 30分钟自动停止/);assert.match(await debugPanel.innerText(),/Host 预算 20 秒 · 浏览器等待 30 秒/);
   await debugPage.clock.runFor(5000);assert.deepEqual(await debugPage.evaluate(()=>window.debugActions),[],'normal polling must never read debug API');
   await debugSwitch.check();assert.equal(await debugSwitch.isChecked(),true);assert.match(await debugLog.innerText(),/debug_enabled/);
   assert.ok((await debugPanel.boundingBox()).width<=320);
@@ -117,7 +117,7 @@ try {
   await debugSwitch.uncheck();assert.equal(await debugSwitch.isChecked(),false);assert.match(await debugLog.innerText(),/debug_disabled/);
   async function exported(){const pending=debugPage.waitForEvent('download');await debugPage.getByRole('button',{name:'导出 JSON'}).click();const download=await pending;assert.equal(download.suggestedFilename(),'codex-quota-debug.json');const stream=await download.createReadStream();const chunks=[];for await(const chunk of stream)chunks.push(chunk);return JSON.parse(Buffer.concat(chunks).toString('utf8'));}
   let exportedLog=await exported();assert.equal(exportedLog.schemaVersion,1);assert.ok(exportedLog.host.entries.length>30,'explicit export reads full Host log');assert.equal(exportedLog.host.enabled,false);assert.ok(exportedLog.client.entries.length>0);
-  assert.equal(exportedLog.config.clientRpcTimeoutMs,15000);assert.equal(exportedLog.config.timeoutMs,10000);assert.equal(exportedLog.config.pollIntervalMs,5000);
+  assert.equal(exportedLog.config.clientRpcTimeoutMs,30000);assert.equal(exportedLog.config.timeoutMs,20000);assert.equal(exportedLog.config.pollIntervalMs,5000);
   assert.doesNotMatch(JSON.stringify(exportedLog),/PRIVATE|windows|credits|remainingPercent|Authorization|account|token/);
   const clientCount=exportedLog.client.entries.length;await debugPage.clock.runFor(10000);exportedLog=await exported();assert.equal(exportedLog.client.entries.length,clientCount,'disabled client recording stays stopped');
   await debugPage.evaluate(()=>window.fixtureDebugFail=true);exportedLog=await exported();assert.equal(exportedLog.hostReadFailed,true);assert.equal(exportedLog.client.entries.length,clientCount);assert.doesNotMatch(JSON.stringify(exportedLog),/PRIVATE|Authorization|account|token/);await debugPage.evaluate(()=>window.fixtureDebugFail=false);

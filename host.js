@@ -6,7 +6,7 @@ export const name = 'codex-quota';
 export const inject = ['credentials', 'connection'];
 export const Config = z.object({
   pollIntervalMs: z.number().min(5000).max(60000).default(5000),
-  timeoutMs: z.number().min(1000).max(30000).default(10000),
+  timeoutMs: z.number().min(1000).max(30000).default(20000),
 });
 const RECORD_KEY = 'llm-pi-ai/openai-codex';
 const CLIENT_ID = 'app_EMoamEEZ73f0CkXaXp7hrann';
@@ -49,7 +49,7 @@ export async function refreshGrant(grant, signal, fetchImpl = fetch, now = Date.
 export function apply(ctx, config = {}) {
   let refreshing = false;
   const diagnostics = new DebugRecorder();
-  const timeoutMs = config.timeoutMs ?? 10000, pollIntervalMs = config.pollIntervalMs ?? 5000;
+  const timeoutMs = config.timeoutMs ?? 20000, pollIntervalMs = config.pollIntervalMs ?? 5000;
   const debugView = (limit = 30) => ({ ...diagnostics.read(limit), timeoutMs, pollIntervalMs });
   const monitor = new QuotaMonitor({
     pollIntervalMs, timeoutMs, diagnostics,

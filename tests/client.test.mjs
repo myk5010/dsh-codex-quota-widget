@@ -20,12 +20,12 @@ test('background tabs pause polling, visibility resumes, listeners disposed',asy
 test('RPC failure preserves last data and marks connection error',async()=>{const t=load().testing;const timer=timers();let calls=0,last;const p=t.createPoller({timers:timer,call:async()=>++calls===1?{ok:true,value:{status:'ok',windows:[{remainingPercent:90}]}}:{ok:false,error:{message:'PRIVATE_ERROR'}},onChange:x=>last=x});p.start();await tick();timer.fire();await tick();assert.equal(last.errorCode,'connection_error');assert.equal(last.windows[0].remainingPercent,90);assert.equal(last.stale,true);assert.equal(JSON.stringify(last).includes('PRIVATE'),false);p.stop();});
 
 const plain=value=>JSON.parse(JSON.stringify(value));
-function debugInfo(now,extra={}){return{enabled:true,startedAt:now,expiresAt:now+1800000,generation:1,count:1,lastSeq:1,maxEntries:300,ttlMs:1800000,timeoutMs:10000,pollIntervalMs:5000,entries:[{source:'host',seq:1,timestampMs:now,event:'debug_enabled'}],...extra};}
+function debugInfo(now,extra={}){return{enabled:true,startedAt:now,expiresAt:now+1800000,generation:1,count:1,lastSeq:1,maxEntries:300,ttlMs:1800000,timeoutMs:20000,pollIntervalMs:5000,entries:[{source:'host',seq:1,timestampMs:now,event:'debug_enabled'}],...extra};}
 test('client journal is opt-in, stops on disable/TTL and retains recorded entries',()=>{
   const t=loadSource().testing;let now=1000;const j=t.createClientJournal({now:()=>now});
   assert.equal(j.begin(),null);j.record(null,{ok:true});assert.equal(j.snapshot().length,0);
   j.sync(debugInfo(now));const token=j.begin();now+=25;j.record(token,{timestampMs:now,durationMs:25,ok:true,aborted:false});
-  assert.deepEqual(plain(j.snapshot()),[{source:'client',event:'status_rpc',requestId:'r1',timeoutMs:15000,timestampMs:1025,durationMs:25,ok:true,aborted:false}]);
+  assert.deepEqual(plain(j.snapshot()),[{source:'client',event:'status_rpc',requestId:'r1',timeoutMs:30000,timestampMs:1025,durationMs:25,ok:true,aborted:false}]);
   j.sync(debugInfo(1000,{enabled:false}));assert.equal(j.begin(),null);j.record(token,{ok:false});assert.equal(j.snapshot().length,1);
   j.sync(debugInfo(1000));now=1801000;assert.equal(j.info().enabled,false);assert.equal(j.begin(),null);j.record(token,{ok:false});assert.equal(j.snapshot().length,1);
 });
@@ -47,7 +47,7 @@ test('journals and export reject unknown fields, raw errors, request payloads an
   const host={source:'host',event:'query_failed',seq:2,timestampMs:now,requestId:'q2',stage:'upstream_fetch',durationMs:10000,httpStatus:503,errorCode:'network_error',errorName:'TypeError',causeName:'ConnectTimeoutError',networkCode:'UND_ERR_CONNECT_TIMEOUT',timedOut:true,retryMs:5000,...privateFields};
   const j=t.createClientJournal({now:()=>now});j.sync(debugInfo(now));j.record(j.begin(),{timestampMs:now,durationMs:1,ok:false,aborted:true,...privateFields});
   const result=t.buildDebugExport({...debugInfo(now),entries:[host,{source:'host',event:'PRIVATE_EVENT',message:'PRIVATE'}],...privateFields,windows:[{remainingPercent:93}],credits:{balance:100}},[...j.snapshot(),{source:'client',event:'PRIVATE_EVENT',requestId:'r8'},...Array(301).fill({...j.snapshot()[0],...privateFields})],now);
-  assert.equal(result.schemaVersion,1);assert.equal(result.host.entries.length,1);assert.equal(result.client.entries.length,300);assert.equal(result.host.entries[0].httpStatus,503);assert.equal(result.config.timeoutMs,10000);assert.equal(result.config.clientRpcTimeoutMs,15000);
+  assert.equal(result.schemaVersion,1);assert.equal(result.host.entries.length,1);assert.equal(result.client.entries.length,300);assert.equal(result.host.entries[0].httpStatus,503);assert.equal(result.config.timeoutMs,20000);assert.equal(result.config.clientRpcTimeoutMs,30000);
   assert.doesNotMatch(JSON.stringify(result),/PRIVATE|private|windows|credits|Authorization|remainingPercent/);
   assert.equal(t.safeHostEntry({...host,event:'query_failed',stage:'PRIVATE',errorCode:'PRIVATE',errorName:'PRIVATE',causeName:'PRIVATE',networkCode:'PRIVATE',requestId:'session-123'}).stage,undefined);
   assert.equal(t.safeHostEntry({...host,httpStatus:999}).httpStatus,undefined);
@@ -64,7 +64,7 @@ test('status RPC wrapper records safe success/failure, duration and abort withou
   assert.doesNotMatch(JSON.stringify(j.snapshot()),/PRIVATE/);assert.equal(seen[0][0],'/api');assert.equal(seen[0][1],'codex-quota/status');assert.equal(seen[0][3],controller.signal);
   await assert.rejects(callDebug('unknown'),/debug_operation_failed/);
 });
-test('debug controls have a cleared 15s deadline without logging raw errors',async()=>{const t=loadSource().testing;let fire,cleared=false;const timers={setTimeout(fn,ms){assert.equal(ms,15000);fire=fn;return 1;},clearTimeout(){cleared=true;}};const wrapper=t.createClientRPC({timers,rpc:{call(base,route,payload,signal){return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('PRIVATE_CONTROL_ERROR'))));}}});const pending=wrapper.callDebug('read');fire();await assert.rejects(pending,/PRIVATE_CONTROL_ERROR/);assert.equal(cleared,true);assert.equal(wrapper.clientJournal.snapshot().length,0);});
+test('debug controls have a cleared 30s deadline without logging raw errors',async()=>{const t=loadSource().testing;let fire,cleared=false;const timers={setTimeout(fn,ms){assert.equal(ms,30000);fire=fn;return 1;},clearTimeout(){cleared=true;}};const wrapper=t.createClientRPC({timers,rpc:{call(base,route,payload,signal){return new Promise((resolve,reject)=>signal.addEventListener('abort',()=>reject(Error('PRIVATE_CONTROL_ERROR'))));}}});const pending=wrapper.callDebug('read');fire();await assert.rejects(pending,/PRIVATE_CONTROL_ERROR/);assert.equal(cleared,true);assert.equal(wrapper.clientJournal.snapshot().length,0);});
 test('debug controls sync generation, clear client logs, and stale status cannot undo disable or clear',async()=>{
   const t=loadSource().testing;let now=1000,meta=debugInfo(now),finishStatus;
   const rpc={async call(base,route,args){assert.equal(base,'/api');if(route.endsWith('/status'))return new Promise(resolve=>finishStatus=resolve);if(args.action==='disable')meta={...meta,enabled:false};if(args.action==='clear')meta={...meta,count:0,entries:[]};return{ok:true,value:meta};}};

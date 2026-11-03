@@ -82,7 +82,7 @@ export async function readJson(response, maxBytes = 1048576) {
 }
 
 export class QuotaMonitor {
-  constructor({ readGrant, fetchImpl = fetch, now = Date.now, pollIntervalMs = POLL_MS, timeoutMs = 10000, diagnostics = null }) {
+  constructor({ readGrant, fetchImpl = fetch, now = Date.now, pollIntervalMs = POLL_MS, timeoutMs = 20000, diagnostics = null }) {
     this.readGrant = readGrant; this.fetchImpl = fetchImpl; this.now = now;
     this.pollIntervalMs = Math.max(POLL_MS, pollIntervalMs); this.timeoutMs = timeoutMs;
     this.state = { status: 'loading', errorCode: null, updatedAt: null, checkedAt: null,

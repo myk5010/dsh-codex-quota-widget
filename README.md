@@ -1,6 +1,6 @@
 # dsh-codex-quota-widget
 
-DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.1.0**。
+DSH Web 的 ChatGPT Codex 订阅额度角标插件。当前版本 **1.1.1**。
 本仓库是后续插件更新的源码主线；现有DSH部署不依赖此目录的实时改动。
 
 ## 功能
@@ -53,10 +53,10 @@ sha256sum dist/*.tgz
 经确认后在DSH插件页安装tarball并启用组合包，或：
 
 ```sh
-dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.1.0.tgz --ignore-scripts
+dsh plugin --profile web add /absolute/path/to/dist/dsh-codex-quota-widget-1.1.1.tgz --ignore-scripts
 ```
 
-当前bundle配置见 [cordis.patch.yml](<cordis.patch.yml>)：`pollIntervalMs: 5000`、`timeoutMs: 10000`。
+当前bundle配置见 [cordis.patch.yml](<cordis.patch.yml>)：`pollIntervalMs: 5000`、`timeoutMs: 20000`；浏览器等待预算为30000ms，避免先于Host放弃。
 已有依赖的升级可能保留停用状态，请核对当前Profile的bundle选择。安装后刷新现有Web GUI并验证。
 修改Host模块可能需要重新激活/人工重启，不能假定复制文件就能热更新。
 
